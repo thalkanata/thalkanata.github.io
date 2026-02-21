@@ -22,6 +22,27 @@ export default function QRScanner() {
   const [devices, setDevices] = useState<Array<{ id: string; label?: string }>>([]);
   const [popup, setPopup] = useState<string | null>(null);
   const popupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastScanTimeRef = useRef<number>(0);
+  // list.csvのID→名前マップを保持
+  const [idNameMap, setIdNameMap] = useState<Record<string, string>>({});
+  // list.csvのID→アイコンマップも作成
+  const [idIconMap, setIdIconMap] = useState<Record<string, string>>({});
+  useEffect(() => {
+    fetch('/list.csv')
+      .then(res => res.text())
+      .then(text => {
+        const lines = text.trim().split('\n');
+        const nameMap: Record<string, string> = {};
+        const iconMap: Record<string, string> = {};
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(',');
+          if (cols.length >= 2) nameMap[cols[0]] = cols[1];
+          if (cols.length >= 3) iconMap[cols[0]] = `/icon/${cols[2]}`;
+        }
+        setIdNameMap(nameMap);
+        setIdIconMap(iconMap);
+      });
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -37,6 +58,10 @@ export default function QRScanner() {
       }
     };
   }, []);
+
+  // 未登録ID・名前リストを計算
+  const unregisteredList = Object.entries(idNameMap)
+    .filter(([id]) => !xIds.some(x => x.id === id));
 
   const startScanner = async () => {
     if (!containerRef.current) return;
@@ -58,6 +83,10 @@ export default function QRScanner() {
       };
 
       const onSuccess = (decodedText: string, decodedResult: any) => {
+        // 5秒以内の再認識は無視
+        const now = Date.now();
+        if (now - lastScanTimeRef.current < 5000) return;
+        lastScanTimeRef.current = now;
         const rawFormat = decodedResult?.result?.format;
         const formatStr = typeof rawFormat === "string"
           ? rawFormat
@@ -84,15 +113,43 @@ export default function QRScanner() {
 
           const xId = extractXId(decodedText);
           if (xId) {
-            setXIds((prev) => {
-              const exists = prev.some((it) => it.id === xId);
-              if (exists) {
-                showPopup("読み取り済みです");
-                return prev;
-              }
-              showPopup(`ID: ${xId}`);
-              return [{ id: xId, url: decodedText, timestamp: new Date().toISOString() }, ...prev];
-            });
+            // list.csvからID→名前のマップを取得
+            fetch('/list.csv')
+              .then(res => res.text())
+              .then(text => {
+                const lines = text.trim().split('\n');
+                let name = null;
+                let icon = null;
+                for (let i = 1; i < lines.length; i++) {
+                  const cols = lines[i].split(',');
+                  if (cols[0] === xId) {
+                    name = cols[1];
+                    icon = cols[2] ? `/icon/${cols[2]}` : null;
+                    break;
+                  }
+                }
+                setXIds((prev) => {
+                  const exists = prev.some((it) => it.id === xId);
+                  if (exists) {
+                    showPopup("読み取り済みです");
+                    return prev;
+                  }
+                  if (name) {
+                    if (icon) {
+                      showPopup(`
+                        <img src='${icon}' alt='' style='width:40vw;max-width:90vw;height:40vw;max-height:60vh;display:block;margin:0 auto 2vw auto;border-radius:4vw;object-fit:cover;' />
+                        <div style='font-size:6vw;line-height:1.2;margin-bottom:1vw;'>ID: ${xId}</div>
+                        <div style='font-size:7vw;line-height:1.2;font-weight:bold;'>名前: ${name}</div>
+                      `);
+                    } else {
+                      showPopup(`<div style='font-size:6vw;line-height:1.2;margin-bottom:1vw;'>ID: ${xId}</div><div style='font-size:7vw;line-height:1.2;font-weight:bold;'>名前: ${name}</div>`);
+                    }
+                  } else {
+                    showPopup(`ID: ${xId}`);
+                  }
+                  return [{ id: xId, url: decodedText, timestamp: new Date().toISOString() }, ...prev];
+                });
+              });
           } else {
             showPopup(decodedText);
           }
@@ -193,12 +250,12 @@ export default function QRScanner() {
       {popup && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
           <div className="w-full h-full flex items-center justify-center p-6">
-            <div className="max-w-full text-center text-white text-2xl md:text-4xl lg:text-6xl font-medium break-words">
-              {popup}
-            </div>
+            <div className="max-w-full text-center text-white text-2xl md:text-4xl lg:text-6xl font-medium break-words" dangerouslySetInnerHTML={{ __html: popup }} />
           </div>
         </div>
       )}
+      {/* ID一覧で人数カウントをボタン上に表示 */}
+      <div className="text-lg font-bold">スキャン済みID人数: {xIds.length}人/未登録ID人数: {unregisteredList.length}人</div>
       <div className="mb-4 flex gap-2">
         <button
           className="rounded bg-blue-600 px-4 py-2 text-white"
@@ -228,6 +285,77 @@ export default function QRScanner() {
 
       <div ref={containerRef} className="w-full rounded border border-gray-200 bg-black/5" style={{ minHeight: 320 }} />
 
+      {/* ID一覧を先に表示（名前列を追加） */}
+      <h2 className="mt-6 mb-2 text-lg font-medium">スキャン済みID一覧</h2>
+      <div className="overflow-x-auto">
+        <table className="w-full table-auto border-collapse text-sm">
+          <thead>
+            <tr className="text-left">
+              <th className="border-b p-2"></th>
+              <th className="border-b p-2">ID</th>
+              <th className="border-b p-2">名前</th>
+              <th className="border-b p-2">元URL</th>
+              <th className="border-b p-2">登録時刻</th>
+            </tr>
+          </thead>
+          <tbody>
+            {xIds.length === 0 ? (
+              <tr>
+                <td className="p-2" colSpan={5}>まだIDが登録されていません</td>
+              </tr>
+            ) : (
+              xIds.map((it, i) => (
+                <tr key={`${it.id}-${i}`} className="odd:bg-white even:bg-gray-50">
+                  <td className="p-2 align-top">
+                    {idIconMap[it.id] && (
+                      <img src={idIconMap[it.id]} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
+                    )}
+                  </td>
+                  <td className="p-2 align-top">{it.id}</td>
+                  <td className="p-2 align-top">{idNameMap[it.id] || ''}</td>
+                  <td className="p-2 align-top break-words max-w-lg">{it.url}</td>
+                  <td className="p-2 align-top">{new Date(it.timestamp).toLocaleString()}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* 未登録ID・名前リスト表示 */}
+      <h2 className="mt-6 mb-2 text-lg font-medium">未登録ID・名前リスト</h2>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full table-auto border-collapse text-sm">
+          <thead>
+            <tr className="text-left">
+              <th className="border-b p-2"></th>
+              <th className="border-b p-2">ID</th>
+              <th className="border-b p-2">名前</th>
+            </tr>
+          </thead>
+          <tbody>
+            {unregisteredList.length === 0 ? (
+              <tr>
+                <td className="p-2" colSpan={3}>全て登録済みです</td>
+              </tr>
+            ) : (
+              unregisteredList.map(([id, name]) => (
+                <tr key={id} className="odd:bg-white even:bg-gray-50">
+                  <td className="p-2 align-top">
+                    {idIconMap[id] && (
+                      <img src={idIconMap[id]} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
+                    )}
+                  </td>
+                  <td className="p-2 align-top">{id}</td>
+                  <td className="p-2 align-top">{name}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* 読み取り結果を後に表示 */}
       <h2 className="mt-6 mb-2 text-lg font-medium">読み取り結果</h2>
       <div className="overflow-x-auto">
         <table className="w-full table-auto border-collapse text-sm">
@@ -249,33 +377,6 @@ export default function QRScanner() {
                   <td className="p-2 align-top">{new Date(s.timestamp).toLocaleString()}</td>
                   <td className="p-2 align-top break-words max-w-lg">{s.text}</td>
                   <td className="p-2 align-top">{s.format}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-      <h2 className="mt-6 mb-2 text-lg font-medium">X.com のID一覧</h2>
-      <div className="overflow-x-auto">
-        <table className="w-full table-auto border-collapse text-sm">
-          <thead>
-            <tr className="text-left">
-              <th className="border-b p-2">ID</th>
-              <th className="border-b p-2">元URL</th>
-              <th className="border-b p-2">登録時刻</th>
-            </tr>
-          </thead>
-          <tbody>
-            {xIds.length === 0 ? (
-              <tr>
-                <td className="p-2" colSpan={3}>まだIDが登録されていません</td>
-              </tr>
-            ) : (
-              xIds.map((it, i) => (
-                <tr key={`${it.id}-${i}`} className="odd:bg-white even:bg-gray-50">
-                  <td className="p-2 align-top">{it.id}</td>
-                  <td className="p-2 align-top break-words max-w-lg">{it.url}</td>
-                  <td className="p-2 align-top">{new Date(it.timestamp).toLocaleString()}</td>
                 </tr>
               ))
             )}

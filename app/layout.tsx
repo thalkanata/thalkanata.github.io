@@ -28,6 +28,55 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {children}
+        {/* x.comリンクID→名前ポップアップスクリプト */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+(function(){
+  let idNameMap = {};
+  fetch('/list.csv')
+    .then(res => res.text())
+    .then(text => {
+      const lines = text.trim().split('\n');
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(',');
+        if(cols.length >= 2) idNameMap[cols[0]] = cols[1];
+      }
+    });
+  function showToast(msg) {
+    let toast = document.createElement('div');
+    toast.textContent = msg;
+    toast.style.position = 'fixed';
+    toast.style.top = '20px';
+    toast.style.left = '50%';
+    toast.style.transform = 'translateX(-50%)';
+    toast.style.background = 'rgba(0,0,0,0.85)';
+    toast.style.color = '#fff';
+    toast.style.padding = '16px 32px';
+    toast.style.borderRadius = '8px';
+    toast.style.fontSize = '1.2rem';
+    toast.style.zIndex = 9999;
+    toast.style.boxShadow = '0 2px 8px rgba(0,0,0,0.2)';
+    document.body.appendChild(toast);
+    setTimeout(()=>{ toast.remove(); }, 5000);
+  }
+  document.addEventListener('click', function(e) {
+    let t = e.target;
+    if (t.tagName === 'A' && t.href) {
+      const m = t.href.match(/^https:\/\/x\.com\/([^\/?#]+)/);
+      if (m) {
+        const id = m[1];
+        if (idNameMap[id]) {
+          e.preventDefault();
+          showToast('ID: ' + id + '\n名前: ' + idNameMap[id]);
+        }
+      }
+    }
+  }, true);
+})();
+            `
+          }}
+        />
       </body>
     </html>
   );
