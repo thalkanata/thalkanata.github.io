@@ -1,0 +1,21 @@
+{
+  "name": "QRスキャンID管理",
+  "short_name": "QRスキャン",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1976d2",
+  "description": "QRコードでIDを管理するPWAアプリ",
+  "icons": [
+    {
+      "src": "/icon/ruined_comslave.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "/icon/ruined_comslave.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}
